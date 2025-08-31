@@ -1,4 +1,4 @@
-#include <SDL.h>
+#include <SDL/SDL.h>
 #if SDL_MAJOR_VERSION >= 2
 #include "sdl20compat.inc.c"
 #endif
@@ -56,6 +56,12 @@ static const int scale = 2;
 #else
 static int scale = 2;
 #endif
+
+/* global pixel offsets applied to all SDL_FillRect calls (pixels)
+ * positive x moves right, positive y moves down. User requested
+ * +32px right and -4px up, so default values are set accordingly. */
+static const int sdl_fill_offset_x = 32;
+static const int sdl_fill_offset_y = -4;
 
 static const SDL_Color base_palette[16] = {
 	{0x00, 0x00, 0x00},
@@ -339,7 +345,7 @@ int main(int argc, char** argv) {
 	SDL_N3DSKeyBind(KEY_L, SDLK_d); //load state
 	SDL_N3DSKeyBind(KEY_R, SDLK_s); //save state
 #endif
-	SDL_CHECK(screen = SDL_SetVideoMode(320, 240, has_colors ? 16 : 8, SDL_SWSURFACE));
+	SDL_CHECK(screen = SDL_SetVideoMode(320, 240, 1 ? 16 : 8, SDL_SWSURFACE));
 	SDL_WM_SetCaption("Celeste", NULL);
 	// int mixflag = MIX_INIT_OGG;
 	// if (Mix_Init(mixflag) != mixflag) {
@@ -623,6 +629,13 @@ static inline void Xblit(SDL_Surface* src, SDL_Rect* srcrect, SDL_Surface* dst, 
 	if (!dstrect)
 		dstrect = (fulldst = (SDL_Rect){0,0,dst->w,dst->h}, &fulldst);
 
+	/* apply global SDL fill offsets to destination rectangle so blits align
+	 * with other drawing functions that use sdl_fill_offset_x/_y */
+	SDL_Rect dstrect_local = *dstrect;
+	dstrect_local.x += sdl_fill_offset_x;
+	dstrect_local.y += sdl_fill_offset_y;
+	dstrect = &dstrect_local;
+
 	int srcx, srcy, w, h;
 	
 	/* clip the source rectangle to the source surface */
@@ -701,10 +714,29 @@ static inline void Xblit(SDL_Surface* src, SDL_Rect* srcrect, SDL_Surface* dst, 
 }
 
 static void p8_rectfill(int x0, int y0, int x1, int y1, int col) {
-	int w = (x1 - x0 + 1)*scale;
-	int h = (y1 - y0 + 1)*scale;
+	/* normalize coords so x0,y0 is top-left and x1,y1 is bottom-right */
+	if (x1 < x0) { int t = x0; x0 = x1; x1 = t; }
+	if (y1 < y0) { int t = y0; y0 = y1; y1 = t; }
+
+	if (!screen || scale <= 0) return;
+
+	/* clip to screen bounds (coordinates are in pico units, screen is scaled) */
+	int max_w = 128;
+	int max_h = 128;
+
+	/* quick reject: fully outside */
+	if (x1 < 0 || y1 < 0 || x0 >= max_w || y0 >= max_h) return;
+
+	if (x0 < 0) x0 = 0;
+	if (y0 < 0) y0 = 0;
+	if (x1 >= max_w) x1 = max_w - 1;
+	if (y1 >= max_h) y1 = max_h - 1;
+
+	int w = (x1 - x0 + 1) * scale;
+	int h = (y1 - y0 + 1) * scale;
 	if (w > 0 && h > 0) {
-		SDL_Rect rc = {x0*scale,y0*scale, w,h};
+		/* apply requested pixel offset: +32 right, -4 up */
+		SDL_Rect rc = { x0 * scale + sdl_fill_offset_x, y0 * scale + sdl_fill_offset_y, w, h };
 		SDL_FillRect(screen, &rc, getcolor(col));
 	}
 }
@@ -815,15 +847,15 @@ int pico8emu(CELESTE_P8_CALLBACK_TYPE call, ...) {
 			int realcolor = getcolor(col);
 
 			if (r <= 1) {
-				SDL_FillRect(screen, &(SDL_Rect){scale*(cx-1), scale*cy, scale*3, scale}, realcolor);
-				SDL_FillRect(screen, &(SDL_Rect){scale*cx, scale*(cy-1), scale, scale*3}, realcolor);
+				SDL_FillRect(screen, &(SDL_Rect){scale*(cx-1) + sdl_fill_offset_x, scale*cy + sdl_fill_offset_y, scale*3, scale}, realcolor);
+				SDL_FillRect(screen, &(SDL_Rect){scale*cx + sdl_fill_offset_x, scale*(cy-1) + sdl_fill_offset_y, scale, scale*3}, realcolor);
 			} else if (r <= 2) {
-				SDL_FillRect(screen, &(SDL_Rect){scale*(cx-2), scale*(cy-1), scale*5, scale*3}, realcolor);
-				SDL_FillRect(screen, &(SDL_Rect){scale*(cx-1), scale*(cy-2), scale*3, scale*5}, realcolor);
+				SDL_FillRect(screen, &(SDL_Rect){scale*(cx-2) + sdl_fill_offset_x, scale*(cy-1) + sdl_fill_offset_y, scale*5, scale*3}, realcolor);
+				SDL_FillRect(screen, &(SDL_Rect){scale*(cx-1) + sdl_fill_offset_x, scale*(cy-2) + sdl_fill_offset_y, scale*3, scale*5}, realcolor);
 			} else if (r <= 3) {
-				SDL_FillRect(screen, &(SDL_Rect){scale*(cx-3), scale*(cy-1), scale*7, scale*3}, realcolor);
-				SDL_FillRect(screen, &(SDL_Rect){scale*(cx-1), scale*(cy-3), scale*3, scale*7}, realcolor);
-				SDL_FillRect(screen, &(SDL_Rect){scale*(cx-2), scale*(cy-2), scale*5, scale*5}, realcolor);
+				SDL_FillRect(screen, &(SDL_Rect){scale*(cx-3) + sdl_fill_offset_x, scale*(cy-1) + sdl_fill_offset_y, scale*7, scale*3}, realcolor);
+				SDL_FillRect(screen, &(SDL_Rect){scale*(cx-1) + sdl_fill_offset_x, scale*(cy-3) + sdl_fill_offset_y, scale*3, scale*7}, realcolor);
+				SDL_FillRect(screen, &(SDL_Rect){scale*(cx-2) + sdl_fill_offset_x, scale*(cy-2) + sdl_fill_offset_y, scale*5, scale*5}, realcolor);
 			} else { //i dont think the game uses this
 				int f = 1 - r; //used to track the progress of the drawn circle (since its semi-recursive)
 				int ddFx = 1; //step x
@@ -962,9 +994,9 @@ static void p8_line(int x0, int y0, int x1, int y1, unsigned char color) {
 	Uint32 realcolor = getcolor(color);
 
 	#undef CLAMP
-  #define PLOT(x,y) do {                                                        \
-     SDL_FillRect(screen, &(SDL_Rect){x*scale,y*scale,scale,scale}, realcolor); \
-	} while (0)
+  #define PLOT(x,y) do {                                                              \
+	  SDL_FillRect(screen, &(SDL_Rect){(x)*scale + sdl_fill_offset_x, (y)*scale + sdl_fill_offset_y, scale, scale}, realcolor); \
+  } while (0)
 	int sx, sy, dx, dy, err, e2;
 	dx = abs(x1 - x0);
 	dy = abs(y1 - y0);

@@ -288,6 +288,9 @@ static void* game_state = NULL;
 static void mainLoop(void);
 static FILE* TAS = NULL;
 
+/* target frame time in milliseconds for 30 FPS */
+static const Uint32 FRAME_MS = 1000u / 30u;
+
 #ifdef _3DS
 // hack: newer SDL versions remove SDL_N3DSKeyBind, but I'm too lazy to change the
 // code to properly use SDL_Joystick inputs on 3DS so work around it ...
@@ -470,6 +473,8 @@ static void ReadGamepadInput(Uint16* out_buttons);
 #endif
 
 static void mainLoop(void) {
+	static Uint32 last_frame = 0;
+	Uint32 frame_start = SDL_GetTicks();
 	const Uint8* kbstate = SDL_GetKeyState(NULL);
 		
 	static int reset_input_timer = 0;
@@ -613,6 +618,9 @@ static void mainLoop(void) {
 	DisplayHeldKey();
 	
 SDL_Flip(screen);
+	/* frame limiter: delay to maintain ~30 FPS */
+	Uint32 elapsed = SDL_GetTicks() - frame_start;
+	if (elapsed < FRAME_MS) SDL_Delay(FRAME_MS - elapsed);
 
 }
 
@@ -675,6 +683,9 @@ static inline void Xblit(SDL_Surface* src, SDL_Rect* srcrect, SDL_Surface* dst, 
 		SDL_Rect *clip = &dst->clip_rect;
 		int dx, dy;
 
+		/* also clip against the virtual Pico-8 viewport (PICO8_W x PICO8_H) */
+		SDL_Rect virtual_clip = { sdl_fill_offset_x, sdl_fill_offset_y, PICO8_W * scale, PICO8_H * scale };
+
 		dx = clip->x - dstrect->x;
 		if (dx > 0) {
 			w -= dx;
@@ -694,6 +705,29 @@ static inline void Xblit(SDL_Surface* src, SDL_Rect* srcrect, SDL_Surface* dst, 
 		dy = dstrect->y + h - clip->y - clip->h;
 		if (dy > 0)
 			h -= dy;
+
+		/* now clip against virtual viewport (in screen pixels) */
+		/* compute intersection of dstrect and virtual_clip */
+		if (dstrect->x < virtual_clip.x) {
+			int cut = virtual_clip.x - dstrect->x;
+			srcx += cut;
+			w -= cut;
+			dstrect->x = virtual_clip.x;
+		}
+		if (dstrect->y < virtual_clip.y) {
+			int cut = virtual_clip.y - dstrect->y;
+			srcy += cut;
+			h -= cut;
+			dstrect->y = virtual_clip.y;
+		}
+		if (dstrect->x + w > virtual_clip.x + virtual_clip.w) {
+			int cut = (dstrect->x + w) - (virtual_clip.x + virtual_clip.w);
+			w -= cut;
+		}
+		if (dstrect->y + h > virtual_clip.y + virtual_clip.h) {
+			int cut = (dstrect->y + h) - (virtual_clip.y + virtual_clip.h);
+			h -= cut;
+		}
 	}
 
 	if (w && h) {
@@ -847,15 +881,16 @@ int pico8emu(CELESTE_P8_CALLBACK_TYPE call, ...) {
 			int realcolor = getcolor(col);
 
 			if (r <= 1) {
-				SDL_FillRect(screen, &(SDL_Rect){scale*(cx-1) + sdl_fill_offset_x, scale*cy + sdl_fill_offset_y, scale*3, scale}, realcolor);
-				SDL_FillRect(screen, &(SDL_Rect){scale*cx + sdl_fill_offset_x, scale*(cy-1) + sdl_fill_offset_y, scale, scale*3}, realcolor);
+				/* use p8_rectfill so clipping to the 128x128 virtual screen is applied */
+				p8_rectfill(cx-1, cy, cx+1, cy, col);
+				p8_rectfill(cx, cy-1, cx, cy+1, col);
 			} else if (r <= 2) {
-				SDL_FillRect(screen, &(SDL_Rect){scale*(cx-2) + sdl_fill_offset_x, scale*(cy-1) + sdl_fill_offset_y, scale*5, scale*3}, realcolor);
-				SDL_FillRect(screen, &(SDL_Rect){scale*(cx-1) + sdl_fill_offset_x, scale*(cy-2) + sdl_fill_offset_y, scale*3, scale*5}, realcolor);
+				p8_rectfill(cx-2, cy-1, cx+2, cy+1, col);
+				p8_rectfill(cx-1, cy-2, cx+1, cy+2, col);
 			} else if (r <= 3) {
-				SDL_FillRect(screen, &(SDL_Rect){scale*(cx-3) + sdl_fill_offset_x, scale*(cy-1) + sdl_fill_offset_y, scale*7, scale*3}, realcolor);
-				SDL_FillRect(screen, &(SDL_Rect){scale*(cx-1) + sdl_fill_offset_x, scale*(cy-3) + sdl_fill_offset_y, scale*3, scale*7}, realcolor);
-				SDL_FillRect(screen, &(SDL_Rect){scale*(cx-2) + sdl_fill_offset_x, scale*(cy-2) + sdl_fill_offset_y, scale*5, scale*5}, realcolor);
+				p8_rectfill(cx-3, cy-1, cx+3, cy+1, col);
+				p8_rectfill(cx-1, cy-3, cx+1, cy+3, col);
+				p8_rectfill(cx-2, cy-2, cx+2, cy+2, col);
 			} else { //i dont think the game uses this
 				int f = 1 - r; //used to track the progress of the drawn circle (since its semi-recursive)
 				int ddFx = 1; //step x
@@ -994,9 +1029,10 @@ static void p8_line(int x0, int y0, int x1, int y1, unsigned char color) {
 	Uint32 realcolor = getcolor(color);
 
 	#undef CLAMP
-  #define PLOT(x,y) do {                                                              \
-	  SDL_FillRect(screen, &(SDL_Rect){(x)*scale + sdl_fill_offset_x, (y)*scale + sdl_fill_offset_y, scale, scale}, realcolor); \
-  } while (0)
+	#define PLOT(x,y) do {                              \
+		/* plot using p8_rectfill so virtual clipping applies */ \
+		p8_rectfill((x),(y),(x),(y), color);             \
+	} while (0)
 	int sx, sy, dx, dy, err, e2;
 	dx = abs(x1 - x0);
 	dy = abs(y1 - y0);

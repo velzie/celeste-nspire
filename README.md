@@ -2,6 +2,7 @@
 
 Port of [ccleste](https://github.com/lemon32767/ccleste) to run on the [ndless](https://github.com/ndless-nspire/Ndless) toolchain targeting ti-nspire calculators
 
+<img width="1536" height="2048" alt="image" src="https://github.com/user-attachments/assets/7f76ce37-718b-4caa-acd8-c07cedbe4171" />
 
 ## Getting Started
 - Install [ndless](https://ndless.me/) (requires an os version <= 6.2.0)

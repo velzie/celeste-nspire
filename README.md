@@ -1,3 +1,37 @@
+# ccleste-nspire
+
+Port of [ccleste](https://github.com/lemon32767/ccleste) to run on the [ndless](https://github.com/ndless-nspire/Ndless) toolchain targeting ti-nspire calculators
+
+
+## Getting Started
+- Install [ndless](https://ndless.me/) (requires an os version <= 6.2.0)
+- Download celeste.tns from [the releases tab](https://github.com/lemon-sherbet/ccleste/releases)
+- Transfer celeste.tns to the calculator with [n-link](https://n-link.lights0123.com/)
+- Go to documents and open celeste.tns
+
+Controls:
+
+- ctrl - jump
+- shift - dash
+- esc - pause
+- del - quit
+
+## Building
+```
+PATH=$PATH:/path/to/ndless-toolchain
+git clone https://github.com/velzie/celeste-nspire
+cd celeste-nspire
+make TARGET=nspire EMBED_RESOURCES=1 SDL_VER=1
+```
+to build for regular os target
+```
+make SDL_VER=1
+```
+
+
+
+Original readme below:
+
 # ccleste
 
 ![screenshot](https://raw.githubusercontent.com/lemon-sherbet/ccleste/master/screenshot.png)
